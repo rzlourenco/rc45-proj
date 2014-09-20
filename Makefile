@@ -5,9 +5,7 @@ CLIENT_OBJS := $(CLIENT_SRCS:%.c=%.o)
 OUTDIR      := bin
 
 CC      := gcc
-# _POSIX_C_SOURCE is defined to shut up the warnings about some POSIX
-# functions not being defined in unistd.h
-CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_POSIX_C_SOURCE=200112L
+CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE -DNG=10
 LDFLAGS :=
 
 all: user
