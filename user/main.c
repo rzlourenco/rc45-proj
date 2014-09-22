@@ -15,14 +15,20 @@
 // #define NG 10
 
 static char CS_name[128];
-// static char SS_name[128]; 
+static char SS_name[128]; 
 
 static int CS_udp_socket = INVALID_SOCKET;
 static int CS_tcp_socket = INVALID_SOCKET;
+static int SS_tcp_socket = INVALID_SOCKET;
 static int CS_port = 58000 + NG;
+static int SS_port = 59000;
 
 static struct hostent *CS_host;
+static struct hostent *SS_host;
 static struct sockaddr_in CS_addr;
+static struct sockaddr_in SS_addr;
+static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
+static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
 
 // =============== Forward declarations ==================================== 
 
@@ -37,6 +43,22 @@ int main(int argc, char *argv[]) {
 
   parse_args(argc, argv);
   init_connections();
+
+  if (sendto(CS_udp_socket, "LST\n", 4, 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
+    fprintf(stderr, "Failed to send message to central server: %s\n", strerror(errno));
+    exit(1);
+  }
+
+  printf("Sent message.\n");
+
+  char buf[1025] = {0};
+  socklen_t addrlen = sizeof(CS_addr);
+  if (recvfrom(CS_udp_socket, buf, sizeof(buf), 0, CS_addr_ptr, &addrlen) == -1) {
+    fprintf(stderr, "Failed to receive message from central server: %s\n", strerror(errno));
+    exit(1);
+  }
+
+  printf("Received message: %s\n", buf);
 
   close(CS_udp_socket);
   close(CS_tcp_socket);
@@ -78,10 +100,18 @@ void init_connections(void) {
   CS_addr.sin_port = htons(CS_port);
 
   // Initialize TCP connection
-  if (connect(CS_tcp_socket, (struct sockaddr *)&CS_addr, sizeof(CS_addr)) == -1) {
+  if (connect(CS_tcp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
     fprintf(stderr, "Failed to connect to central server: %s\n", strerror(errno));
     exit(1);
   }
+
+#if 0
+  // Set default for UDP connection
+  if (connect(CS_udp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
+    fprintf(stderr, "Failed to set default address for UDP server: %s\n", strerror(errno));
+    exit(1);
+  }
+#endif
 }
 
 // ========================================================================= 
