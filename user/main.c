@@ -44,24 +44,33 @@ int main(int argc, char *argv[]) {
   parse_args(argc, argv);
   init_connections();
 
-  if (sendto(CS_udp_socket, "LST\n", 4, 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    fprintf(stderr, "Failed to send message to central server: %s\n", strerror(errno));
-    exit(1);
+  for (;;) {
+    printf("> ");
+
+    char command[32] = {0}, arg[256] = {0};
+    int ret = scanf("%s %s \n", command, arg);
+    if (ret == EOF) { break; }
+
+    if (ret == 1 && strcmp(command, "list") == 0) {
+      send_list_command();
+    }
+    else if (ret == 1 && strcmp(command, "exit") == 0) {
+      break;
+    }
+    else if (strcmp(command, "retrieve") == 0) {
+      send_retrieve_command(arg);
+    }
+    else if (strcmp(command, "upload") == 0) {
+      send_retrieve_command(arg);
+    }
+    else {
+      printf("Invalid command.\n");
+    }
   }
-
-  printf("Sent message.\n");
-
-  char buf[1025] = {0};
-  socklen_t addrlen = sizeof(CS_addr);
-  if (recvfrom(CS_udp_socket, buf, sizeof(buf), 0, CS_addr_ptr, &addrlen) == -1) {
-    fprintf(stderr, "Failed to receive message from central server: %s\n", strerror(errno));
-    exit(1);
-  }
-
-  printf("Received message: %s\n", buf);
 
   close(CS_udp_socket);
   close(CS_tcp_socket);
+  close(SS_tcp_socket);
 
   return 0;
 }
