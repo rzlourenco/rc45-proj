@@ -34,6 +34,10 @@ static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
 
 void init_connections(void);
 void parse_args(int argc, char *argv[]);
+char *receive_full(int fd);
+void send_list_command(void);
+void send_retrieve_command(const char *file);
+void send_upload_command(const char *file);
 
 // =============== Our main function ======================================= 
 
@@ -61,7 +65,7 @@ int main(int argc, char *argv[]) {
       send_retrieve_command(arg);
     }
     else if (strcmp(command, "upload") == 0) {
-      send_retrieve_command(arg);
+      send_upload_command(arg);
     }
     else {
       printf("Invalid command.\n");
@@ -143,4 +147,49 @@ void parse_args(int argc, char *argv[]) {
     ++i;
   }
 }
+
+// ========================================================================= 
+
+void send_list_command() {
+  static const char lst[] = "LST\n";
+  if (sendto(CS_udp_socket, "LST\n", sizeof(lst), 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
+    fprintf(stderr, "Failed to send LST command: %s\n", strerror(errno));
+    exit(1);
+  }
+
+  char *msg = receive_full(CS_udp_socket);
+}
+
+// ========================================================================= 
+
+char *receive_full(int fd) {
+  // Allocate a temporary buffer sized 1024
+  char *ret = malloc(1024 * sizeof(char)), buf[1024];
+  size_t maxSize = 1024, curSize = 0;
+
+  do {
+    int readBytes = read(fd, buf, sizeof(buf));
+
+    if (readBytes == 0) {
+      // EOF
+      break;
+    }
+    else if (readBytes == -1) {
+      fprintf(stderr, "Error reading: %s\n", strerror(errno));
+      exit(1);
+    }
+
+    if (curSize + readBytes > maxSize) {
+      ret = realloc(ret, 2 * maxSize);
+    }
+
+    strncpy(ret + curSize, buf, sizeof(buf));
+    curSize += readBytes;
+  } while (1);
+
+  return ret;
+}
+
+void send_upload_command(const char *filename) {}
+void send_retrieve_command(const char *filename) {}
 
