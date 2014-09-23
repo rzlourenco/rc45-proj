@@ -158,6 +158,7 @@ void send_list_command() {
   }
 
   char *msg = receive_full(CS_udp_socket);
+
 }
 
 // ========================================================================= 
@@ -186,6 +187,9 @@ char *receive_full(int fd) {
     strncpy(ret + curSize, buf, sizeof(buf));
     curSize += readBytes;
   } while (1);
+
+  // Potencially unsafe memory access
+  ret[curSize++] = '\0';
 
   return ret;
 }
