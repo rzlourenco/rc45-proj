@@ -1,3 +1,5 @@
+#include "common.h"
+
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -15,26 +17,25 @@
 // #define NG 10
 
 static char CS_name[128];
-static char SS_name[128]; 
+// static char SS_name[128]; 
 
 static int CS_udp_socket = INVALID_SOCKET;
 static int CS_tcp_socket = INVALID_SOCKET;
-static int SS_tcp_socket = INVALID_SOCKET;
+// static int SS_tcp_socket = INVALID_SOCKET;
 static int CS_port = 58000 + NG;
-static int SS_port = 59000;
+// static int SS_port = 59000;
 
 static struct hostent *CS_host;
-static struct hostent *SS_host;
+// static struct hostent *SS_host;
 static struct sockaddr_in CS_addr;
-static struct sockaddr_in SS_addr;
+// static struct sockaddr_in SS_addr;
 static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
-static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
+// static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
 
 // =============== Forward declarations ==================================== 
 
 void init_connections(void);
-void parse_args(int argc, char *argv[]);
-char *receive_full(int fd);
+char *receive_udp(int fd, struct sockaddr *addr);
 void send_list_command(void);
 void send_retrieve_command(const char *file);
 void send_upload_command(const char *file);
@@ -45,15 +46,23 @@ int main(int argc, char *argv[]) {
   // Skip executable path 
   --argc, ++argv;
 
-  parse_args(argc, argv);
+  parse_args(argc, argv, &CS_port, CS_name);
   init_connections();
 
   for (;;) {
     printf("> ");
+    fflush(stdout);
 
-    char command[32] = {0}, arg[256] = {0};
-    int ret = scanf("%s %s \n", command, arg);
-    if (ret == EOF) { break; }
+    char command[32] = {0}, arg[256] = {0}, line[1025] = {0};
+    fgets(line, sizeof(line), stdin);
+    if (feof(stdin)) { break; }
+    if (ferror(stdin)) {
+      fprintf(stderr, "Error reading stdin: %s\n", strerror(errno));
+      exit(1);
+    }
+
+
+    int ret = sscanf(line, "%s %s", command, arg);
 
     if (ret == 1 && strcmp(command, "list") == 0) {
       send_list_command();
@@ -74,7 +83,7 @@ int main(int argc, char *argv[]) {
 
   close(CS_udp_socket);
   close(CS_tcp_socket);
-  close(SS_tcp_socket);
+  // close(SS_tcp_socket);
 
   return 0;
 }
@@ -129,47 +138,28 @@ void init_connections(void) {
 
 // ========================================================================= 
 
-void parse_args(int argc, char *argv[]) {
-  int i = 0;
-  while (i < argc) {
-    if (strcmp(argv[i], "-n") == 0 && i+1 < argc) {
-      // FIXME: potencial buffer overflow 
-      strcpy(CS_name, argv[i+1]);
-      i += 2;
-      continue;
-    }
-    else if (strcmp(argv[i], "-p") == 0 && i+1 < argc) {
-      long l = strtol(argv[i+1], NULL, 10);
-      CS_port = l;      
-      i += 2;
-      continue;
-    }
-    ++i;
-  }
-}
-
-// ========================================================================= 
-
 void send_list_command() {
   static const char lst[] = "LST\n";
-  if (sendto(CS_udp_socket, "LST\n", sizeof(lst), 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
+  if (sendto(CS_udp_socket, lst, sizeof(lst) - 1, 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
     fprintf(stderr, "Failed to send LST command: %s\n", strerror(errno));
     exit(1);
   }
 
-  char *msg = receive_full(CS_udp_socket);
-
+  char *msg = receive_udp(CS_udp_socket, CS_addr_ptr);
+  printf("PEANUTS msg %s\n", msg);
 }
 
 // ========================================================================= 
 
-char *receive_full(int fd) {
+char *receive_udp(int fd, struct sockaddr *addr) {
   // Allocate a temporary buffer sized 1024
   char *ret = malloc(1024 * sizeof(char)), buf[1024];
   size_t maxSize = 1024, curSize = 0;
 
   do {
-    int readBytes = read(fd, buf, sizeof(buf));
+    socklen_t addrLen = sizeof(struct sockaddr);
+    int readBytes = recvfrom(fd, buf, sizeof(buf), 0, addr, &addrLen);
+    printf("PEANUTS readBytes %d\n", readBytes);
 
     if (readBytes == 0) {
       // EOF
@@ -194,6 +184,6 @@ char *receive_full(int fd) {
   return ret;
 }
 
-void send_upload_command(const char *filename) {}
-void send_retrieve_command(const char *filename) {}
+void send_upload_command(const char *filename) { (void)filename; }
+void send_retrieve_command(const char *filename) { (void)filename; }
 

@@ -1,22 +1,30 @@
 .PHONY: all clean
 
-CLIENT_SRCS := $(wildcard user/*.c)
-CLIENT_OBJS := $(CLIENT_SRCS:%.c=%.o)
-OUTDIR      := bin
+OUTDIR  := bin
 
-CC      := gcc
+CC      ?= gcc
 CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE -DNG=10
 LDFLAGS :=
 
-all: user
+all: user central storage
+
+-include $(wildcard *.d)
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) -MMD $(CFLAGS) -c $< -o $@
 
-user: $(CLIENT_OBJS)
+user: user.o common.o
 	@-mkdir -p $(OUTDIR)
-	$(CC) $(LDFLAGS) $(CLIENT_OBJS) -o $(OUTDIR)/$@
+	$(CC) $(LDFLAGS) $? -o $(OUTDIR)/$@
+
+central: central.o common.o
+	@-mkdir -p $(OUTDIR)
+	$(CC) $(LDFLAGS) $? -o $(OUTDIR)/$@
+
+storage: storage.o common.o
+	@-mkdir -p $(OUTDIR)
+	$(CC) $(LDFLAGS) $? -o $(OUTDIR)/$@
 
 clean:
-	@-rm -f $(OUTDIR)/* $(CLIENT_OBJS)
+	@-rm -f $(OUTDIR)/* *.o *.d
 
