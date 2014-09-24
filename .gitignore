@@ -34,3 +34,6 @@ bin/*
 # YCM
 *.pyc
 
+# Dependencies
+*.d
+
