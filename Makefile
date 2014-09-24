@@ -3,7 +3,7 @@
 OUTDIR  := bin
 
 CC      ?= gcc
-CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE -DNG=10
+CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE 
 LDFLAGS :=
 
 all: user central storage

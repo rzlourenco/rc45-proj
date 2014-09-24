@@ -10,12 +10,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-// Some globals 
-
-#define INVALID_SOCKET (-1)
-// Not needed, defined in the Makefile (-DNG=10)
-// #define NG 10
-
 static char CS_name[128];
 // static char SS_name[128]; 
 
@@ -35,7 +29,6 @@ static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
 // =============== Forward declarations ==================================== 
 
 void init_connections(void);
-char *receive_udp(int fd, struct sockaddr *addr);
 void send_list_command(void);
 void send_retrieve_command(const char *file);
 void send_upload_command(const char *file);
@@ -55,12 +48,12 @@ int main(int argc, char *argv[]) {
 
     char command[32] = {0}, arg[256] = {0}, line[1025] = {0};
     fgets(line, sizeof(line), stdin);
-    if (feof(stdin)) { break; }
-    if (ferror(stdin)) {
-      fprintf(stderr, "Error reading stdin: %s\n", strerror(errno));
-      exit(1);
+    if (feof(stdin)) {
+      break;
     }
-
+    if (ferror(stdin)) {
+      HANDLE_ERRNO("Error reading stdin");
+    }
 
     int ret = sscanf(line, "%s %s", command, arg);
 
@@ -94,21 +87,18 @@ void init_connections(void) {
   // We use UDP for the list command 
   CS_udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (CS_udp_socket == INVALID_SOCKET) {
-    fprintf(stderr, "Failed to create UDP socket: %s\n", strerror(errno));
-    exit(1);
+    HANDLE_ERRNO("Failed to create UDP socket");
   }
 
   // ... and TCP for the upload command 
   CS_tcp_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (CS_tcp_socket == INVALID_SOCKET) {
-    fprintf(stderr, "Failed to create TCP socket: %s\n", strerror(errno));
-    exit(1);
+    HANDLE_ERRNO("Failed to create TCP socket");
   }
 
   // Uninitialized central server name, use own name 
   if (CS_name[0] == '\0' && gethostname(CS_name, sizeof(CS_name)) == -1) {
-    fprintf(stderr, "Failed to get own hostname: %s\n", strerror(errno));
-    exit(1);
+    HANDLE_ERRNO("Failed to get host name");
   }
 
   CS_host = gethostbyname(CS_name);  
@@ -123,67 +113,27 @@ void init_connections(void) {
 
   // Initialize TCP connection
   if (connect(CS_tcp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    fprintf(stderr, "Failed to connect to central server: %s\n", strerror(errno));
-    exit(1);
+    HANDLE_ERRNO("Failed to connect to central server");
   }
-
-#if 0
-  // Set default for UDP connection
-  if (connect(CS_udp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    fprintf(stderr, "Failed to set default address for UDP server: %s\n", strerror(errno));
-    exit(1);
-  }
-#endif
 }
+
 
 // ========================================================================= 
 
 void send_list_command() {
   static const char lst[] = "LST\n";
   if (sendto(CS_udp_socket, lst, sizeof(lst) - 1, 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    fprintf(stderr, "Failed to send LST command: %s\n", strerror(errno));
-    exit(1);
+    HANDLE_ERRNO("Failed to send LST command");
   }
 
-  char *msg = receive_udp(CS_udp_socket, CS_addr_ptr);
-  printf("PEANUTS msg %s\n", msg);
+  // TODO: receive message, pretty-print it
 }
 
 // ========================================================================= 
 
-char *receive_udp(int fd, struct sockaddr *addr) {
-  // Allocate a temporary buffer sized 1024
-  char *ret = malloc(1024 * sizeof(char)), buf[1024];
-  size_t maxSize = 1024, curSize = 0;
+void send_upload_command(const char *filename) { /* TODO */ (void)filename; }
 
-  do {
-    socklen_t addrLen = sizeof(struct sockaddr);
-    int readBytes = recvfrom(fd, buf, sizeof(buf), 0, addr, &addrLen);
-    printf("PEANUTS readBytes %d\n", readBytes);
+// ========================================================================= 
 
-    if (readBytes == 0) {
-      // EOF
-      break;
-    }
-    else if (readBytes == -1) {
-      fprintf(stderr, "Error reading: %s\n", strerror(errno));
-      exit(1);
-    }
-
-    if (curSize + readBytes > maxSize) {
-      ret = realloc(ret, 2 * maxSize);
-    }
-
-    strncpy(ret + curSize, buf, sizeof(buf));
-    curSize += readBytes;
-  } while (1);
-
-  // Potencially unsafe memory access
-  ret[curSize++] = '\0';
-
-  return ret;
-}
-
-void send_upload_command(const char *filename) { (void)filename; }
-void send_retrieve_command(const char *filename) { (void)filename; }
+void send_retrieve_command(const char *filename) { /* TODO */ (void)filename; }
 
