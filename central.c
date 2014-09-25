@@ -1,5 +1,6 @@
 #include "common.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -11,10 +12,10 @@
 
 static char CS_name[128];
 static int CS_tcp_socket = INVALID_SOCKET;
-// static int CS_udp_socket = INVALID_SOCKET;
+static int CS_udp_socket = INVALID_SOCKET;
 static int CS_port = 58000 + NG;
 static struct sockaddr_in CS_addr;
-static struct sockaddr *CS_addr_ptr = NULL;
+static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
 
 void setup_tcp(void);
 void setup_udp(void);
@@ -38,8 +39,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
   else {
-    // bind
-    // listen
+    setup_tcp();
     tcp_loop();
   }
 
@@ -61,7 +61,16 @@ void setup_tcp() {
   }
 }
 
-void setup_udp() {}
+void setup_udp() {
+  CS_udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (CS_udp_socket == -1) {
+    HANDLE_ERRNO("Could not create UDP socket");
+  }
+
+  if (bind(CS_udp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
+    HANDLE_ERRNO("Could not bind UDP socket");
+  }
+}
 
 void tcp_loop() {
   for (;;) {
@@ -70,12 +79,12 @@ void tcp_loop() {
     int fd = accept(CS_tcp_socket, (struct sockaddr *)&client_addr, &client_len);
 
     if (fd == -1) {
-      HANDLE_ERRNO("Failed to accept connection");
+      HANDLE_ERRNO("Failed to accept TCP connection");
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-      HANDLE_ERRNO("Could not fork server");
+      HANDLE_ERRNO("Could not fork TCP server");
     }
 
     // Leave client handling to child process
@@ -85,8 +94,41 @@ void tcp_loop() {
     }
 
     // Handle client requests
+    
+    // Terminate process
+    exit(0);
   }
 }
 
-void udp_loop() {}
+void udp_loop() {
+  for (;;) {
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
+    char *msg = calloc(1025, sizeof(char));
+    assert(msg != NULL);
+
+    if (recvfrom(CS_udp_socket, msg, sizeof(msg), 0, (struct sockaddr *)&client_addr, &client_len) == -1) {
+      HANDLE_ERRNO("Failed to receive data from client");
+    }
+
+    // TODO handle errors
+    if (fork() != 0) {
+      free(msg);
+      continue;
+    }
+
+    if (strncmp("LST\n", msg, 4) == 0) {
+      // TODO handle errors
+      static char msg[] = "AWL 127.0.0.1 59000 4 a.txt b.png c.d d.c\n";
+      sendto(CS_udp_socket, msg, sizeof(msg) - 1, 0, (struct sockaddr *)&client_addr, client_len); 
+    }
+    else {
+      static char msg[] = "ERR\n";
+      sendto(CS_udp_socket, msg, sizeof(msg) - 1, 0, (struct sockaddr *)&client_addr, client_len);
+    }
+
+    exit(0);
+  }
+}
 
