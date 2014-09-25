@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +24,9 @@ void tcp_loop(void);
 void udp_loop(void);
 
 int main(int argc, char *argv[]) {
+  // Make sure child processes are reaped by the kernel
+  signal(SIGCHLD, SIG_IGN);
+
   parse_args(argc, argv, &CS_port, CS_name);
 
   CS_addr.sin_addr.s_addr = htonl(INADDR_ANY);

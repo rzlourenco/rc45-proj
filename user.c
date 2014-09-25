@@ -126,7 +126,22 @@ void send_list_command() {
     HANDLE_ERRNO("Failed to send LST command");
   }
 
-  // TODO: receive message, pretty-print it
+#define BUF_SIZE (10*(1<<20))
+  char *answer = calloc(BUF_SIZE, sizeof(char));
+  socklen_t len = sizeof(CS_addr);
+  ssize_t ret = recvfrom(CS_udp_socket, answer, BUF_SIZE, 0, CS_addr_ptr, &len);
+  if (ret == -1) {
+    HANDLE_ERRNO("LST: Could not receive answer from central server");
+  }
+  else if (ret == 0) {
+    fprintf(stderr, "LST: Expected answer from server\n");
+    exit(1);
+  }
+
+  // FIXME: potencial invalid memory access
+  answer[ret] = '\0';
+
+  printf("%s\n", answer); 
 }
 
 // ========================================================================= 
