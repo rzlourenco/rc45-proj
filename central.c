@@ -16,7 +16,7 @@ static int CS_tcp_socket = INVALID_SOCKET;
 static int CS_udp_socket = INVALID_SOCKET;
 static int CS_port = 58000 + NG;
 static struct sockaddr_in CS_addr;
-static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
+static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr; // tas a castar um tipo de ponteiro a outro tipo
 
 void setup_tcp(void);
 void setup_udp(void);
