@@ -6,7 +6,7 @@ OBJDIR  := .obj
 $(shell mkdir -p $(OBJDIR) $(OUTDIR))
 
 CC      ?= gcc
-CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE 
+CFLAGS  := -std=c99 -Wall -Wextra -pedantic -D_BSD_SOURCE -g 
 LDFLAGS :=
 
 all: user central storage

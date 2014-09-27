@@ -1,6 +1,8 @@
 #include "common.h"
 
+#include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -8,27 +10,24 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
-static char CS_name[128];
-// static char SS_name[128]; 
+static char SS_name[128]; 
 
-static int CS_udp_socket = INVALID_SOCKET;
-static int CS_tcp_socket = INVALID_SOCKET;
-// static int SS_tcp_socket = INVALID_SOCKET;
+static int CS_udp_socket = -1;
+static int CS_tcp_socket = -1;
+static int SS_tcp_socket = -1;
 static int CS_port = 58000 + NG;
-// static int SS_port = 59000;
+static int SS_port = 0;
 
-static struct hostent *CS_host;
-// static struct hostent *SS_host;
 static struct sockaddr_in CS_addr;
-// static struct sockaddr_in SS_addr;
+static struct sockaddr_in SS_addr;
 static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
-// static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
+static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
 
 // =============== Forward declarations ==================================== 
 
-void init_connections(void);
 void send_list_command(void);
 void send_retrieve_command(const char *file);
 void send_upload_command(const char *file);
@@ -39,8 +38,23 @@ int main(int argc, char *argv[]) {
   // Skip executable path 
   --argc, ++argv;
 
+  char CS_name[128] = {0};
   parse_args(argc, argv, &CS_port, CS_name);
-  init_connections();
+
+  char *real_CS_name = NULL;
+  if (CS_name[0] != '\0') {
+    real_CS_name = CS_name;
+  }
+
+  CS_udp_socket = connect_udp(real_CS_name, CS_port, &CS_addr);
+  if (CS_udp_socket == -1) {
+    E("Could not connect to central server via UDP (%s)", strerror(errno));
+  }
+
+  CS_tcp_socket = connect_tcp(real_CS_name, CS_port, &CS_addr);
+  if (CS_tcp_socket == -1) {
+    E("Could not connect to central server via TCP (%s)", strerror(errno));
+  }
 
   for (;;) {
     printf("> ");
@@ -51,11 +65,8 @@ int main(int argc, char *argv[]) {
     if (feof(stdin)) {
       break;
     }
-    if (ferror(stdin)) {
-      HANDLE_ERRNO("Error reading stdin");
-    }
 
-    int ret = sscanf(line, "%s %s", command, arg);
+    int ret = sscanf(line, "%s %s \n", command, arg);
 
     if (ret == 1 && strcmp(command, "list") == 0) {
       send_list_command();
@@ -63,10 +74,10 @@ int main(int argc, char *argv[]) {
     else if (ret == 1 && strcmp(command, "exit") == 0) {
       break;
     }
-    else if (strcmp(command, "retrieve") == 0) {
+    else if (ret == 2 && strcmp(command, "retrieve") == 0) {
       send_retrieve_command(arg);
     }
-    else if (strcmp(command, "upload") == 0) {
+    else if (ret == 2 && strcmp(command, "upload") == 0) {
       send_upload_command(arg);
     }
     else {
@@ -76,79 +87,156 @@ int main(int argc, char *argv[]) {
 
   close(CS_udp_socket);
   close(CS_tcp_socket);
-  // close(SS_tcp_socket);
+  close(SS_tcp_socket);
 
   return 0;
 }
 
 // ========================================================================= 
 
-void init_connections(void) {
-  // We use UDP for the list command 
-  CS_udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  if (CS_udp_socket == INVALID_SOCKET) {
-    HANDLE_ERRNO("Failed to create UDP socket");
-  }
-
-  // ... and TCP for the upload command 
-  CS_tcp_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (CS_tcp_socket == INVALID_SOCKET) {
-    HANDLE_ERRNO("Failed to create TCP socket");
-  }
-
-  // Uninitialized central server name, use own name 
-  if (CS_name[0] == '\0' && gethostname(CS_name, sizeof(CS_name)) == -1) {
-    HANDLE_ERRNO("Failed to get host name");
-  }
-
-  CS_host = gethostbyname(CS_name);  
-  if (CS_host == NULL) {
-    fprintf(stderr, "Failed to get host by name (%s): %s\n", CS_name, hstrerror(h_errno));
-    exit(1);
-  }
-
-  CS_addr.sin_addr.s_addr = ((struct in_addr *)(CS_host->h_addr_list[0]))->s_addr;
-  CS_addr.sin_family = AF_INET;
-  CS_addr.sin_port = htons(CS_port);
-
-  // Initialize TCP connection
-  if (connect(CS_tcp_socket, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    HANDLE_ERRNO("Failed to connect to central server");
-  }
-}
-
-
-// ========================================================================= 
-
+void handle_list_response(char *msg);
 void send_list_command() {
   static const char lst[] = "LST\n";
   if (sendto(CS_udp_socket, lst, sizeof(lst) - 1, 0, CS_addr_ptr, sizeof(CS_addr)) == -1) {
-    HANDLE_ERRNO("Failed to send LST command");
+    E("could request file list from central server (%s)", strerror(errno));
+    return;
   }
 
-#define BUF_SIZE (10*(1<<20))
-  char *answer = calloc(BUF_SIZE, sizeof(char));
+  char answer[64 * 1024] = {0};
   socklen_t len = sizeof(CS_addr);
-  ssize_t ret = recvfrom(CS_udp_socket, answer, BUF_SIZE, 0, CS_addr_ptr, &len);
+  ssize_t ret = recvfrom(CS_udp_socket, &answer, sizeof(answer), 0, CS_addr_ptr, &len);
   if (ret == -1) {
-    HANDLE_ERRNO("LST: Could not receive answer from central server");
+    E("could not receive file list from central server (%s)", strerror(errno));
   }
   else if (ret == 0) {
-    fprintf(stderr, "LST: Expected answer from server\n");
-    exit(1);
+    E("the central server closed the connection");
   }
 
-  // FIXME: potencial invalid memory access
-  answer[ret] = '\0';
+  handle_list_response(answer);
 
-  printf("%s\n", answer); 
+  SS_tcp_socket = connect_tcp(SS_name, SS_port, &SS_addr);
+  if (SS_tcp_socket == -1) {
+    E("Failed to connect to storage server (%s)", strerror(errno));
+  }
+}
+
+void handle_list_response(char *msg) {
+  char *s = strtok(msg, " "); assert(s);
+
+  if (strcmp("AWL", s) != 0) {
+    E("unexpected response to LST command from central server - %s", s);
+  }
+
+  s = strtok(NULL, " "); assert(s);
+  // Copy hostname/IP
+  strncpy(SS_name, s, sizeof(SS_name));
+  SS_name[sizeof(SS_name) - 1] = '\0';
+  D("SS hostname is %s", SS_name);
+
+  // Read port
+  s = strtok(NULL, " "); assert(s);
+  SS_port = strtol(s, NULL, 10);
+  D("SS port is %d", SS_port);
+
+  // Read number of files
+  s = strtok(NULL, " "); assert(s);
+  int numFiles = strtol(s, NULL, 10);
+
+  if (numFiles <= 0) {
+    printf("No files present in server.\n");
+    return;
+  }
+
+  // Pretty-print file list
+  s = strtok(NULL, " ");
+  printf("Files avaliable:\n");
+
+  int i;
+  for (i = 1; s != NULL && i <= numFiles; ++i) {
+    printf("  %3d. %s\n", i, s);
+    s = strtok(NULL, " ");
+  }
+
+  if (i < numFiles) {
+    W("File list exceeded buffer length.");
+  }
 }
 
 // ========================================================================= 
 
-void send_upload_command(const char *filename) { /* TODO */ (void)filename; }
+void send_upload_command(const char *filename) {
+  int fd = open(filename, O_RDONLY);
+  if (fd == -1) {
+    W("could not open file %s (%s)", filename, strerror(errno));
+    return;
+  }
+
+  struct stat file_info;
+  fstat(fd, &file_info);
+  
+  if (file_info.st_size > MAX_FILE_SIZE) {
+    W("file size is greater than %d, upload aborted", MAX_FILE_SIZE);
+    close(fd);
+    return;
+  }
+
+  char buf[32 * 1024] = {0};
+  int numBytes = snprintf(buf, sizeof(buf)-1, "UPR %s\n", filename);
+
+  if (write(CS_tcp_socket, buf, numBytes) == -1) {
+    E("could not check if file %s exists in server (%s)", filename, strerror(errno));
+  }
+
+  numBytes = read(CS_tcp_socket, buf, sizeof(buf)-1);
+  if (numBytes == -1) {
+    E("could not read response from server (%s)", strerror(errno));
+  }
+  buf[numBytes] = '\0';
+
+  D("%s", buf);
+
+  if (strncmp("AWR ", buf, 4) != 0) {
+    E("unexpected response from server: %s", buf);
+  }
+
+  if (strncmp("dup\n", buf + 4, 4) == 0) {
+    W("file already exists on server, not uploading");
+    close(fd);
+    return;
+  }
+  else if (strncmp("new\n", buf + 4, 4) != 0) {
+    E("unexpected response from central server: %s", buf);
+  }
+
+  // Prepare upload command
+  numBytes = snprintf(buf, sizeof(buf)-1, "UPC %zd ", file_info.st_size);
+  numBytes += read(fd, buf + numBytes, MAX_FILE_SIZE);
+  buf[numBytes++] = '\n';
+  close(fd);
+
+  if (write(CS_tcp_socket, buf, numBytes) == -1) {
+    E("failed to upload %s (%s)", filename, strerror(errno));
+  }
+  
+  numBytes = read(CS_tcp_socket, buf, sizeof(buf)-1);
+  if (numBytes == -1) {
+    E("could not read response from server (%s)", strerror(errno));
+  }
+  buf[numBytes] = '\0';
+
+  D("%s", buf);
+
+  if (strncmp("AWC ", buf, 4) != 0 || strncmp("ok\n", buf + 4, 3) != 0) {
+    E("unexpected responser from server: %s", buf);
+  }
+
+  printf("File uploaded with success\n");
+}
 
 // ========================================================================= 
 
-void send_retrieve_command(const char *filename) { /* TODO */ (void)filename; }
+void send_retrieve_command(const char *filename) {
+  // TODO
+  (void)filename;
+}
 
