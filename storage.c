@@ -2,15 +2,13 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 static char SS_name[128];
@@ -20,7 +18,9 @@ static int CS_fd = -1;
 static int CS_port = 58000 + NG;
 static int SS_port = 59000;
 
-static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
+static struct sockaddr_in CS_addr;
+
+static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
 
 void tcp_loop(void);
 
@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
 
   if (tcp_server == 0)
   {
-    CS_fd = setup_tcp_server(SS_port, &SS_addr);
+    CS_fd = setup_tcp_server(CS_port, &CS_addr);
 
     if (CS_fd == -1)
     {
@@ -62,19 +62,21 @@ void tcp_loop()
 
     int fd = accept(CS_fd, (struct sockaddr *)&client_addr, &client_len);
 
-    if ((fd == -1)
+    if (fd == -1)
     {
       E("Failed to accept TCP connection (%s)", strerror(errno));
     }
 
     pid_t pid = fork();
 
-    if (pid == -1) {
+    if (pid == -1)
+    {
       E("Could not fork TCP server (%s)", strerror(errno));
     }
 
     // Leave client handling to child process
-    if (pid != 0) {
+    if (pid != 0)
+    {
       close(fd);
       continue;
     }
