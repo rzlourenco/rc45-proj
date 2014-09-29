@@ -114,6 +114,12 @@ void send_list_command() {
 
   handle_list_response(answer);
 
+  if (SS_tcp_socket != -1) {
+    close(SS_tcp_socket);
+    SS_tcp_socket = -1;
+    errno = 0;
+  }
+
   SS_tcp_socket = connect_tcp(SS_name, SS_port, &SS_addr);
   if (SS_tcp_socket == -1) {
     E("Failed to connect to storage server (%s)", strerror(errno));
