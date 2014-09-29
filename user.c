@@ -112,6 +112,7 @@ void send_list_command() {
     E("the central server closed the connection");
   }
 
+  D("%s", answer);
   handle_list_response(answer);
 
   if (SS_tcp_socket != -1) {
@@ -218,7 +219,10 @@ void send_upload_command(const char *filename) {
   numBytes = snprintf(buf, sizeof(buf)-1, "UPC %zd ", file_info.st_size);
   numBytes += read(fd, buf + numBytes, MAX_FILE_SIZE);
   buf[numBytes++] = '\n';
+  buf[numBytes] = '\0';
   close(fd);
+
+  D("String: \"%s\", size: %d, strlen: %d", buf, numBytes, strlen(buf));
 
   if (write(CS_tcp_socket, buf, numBytes) == -1) {
     E("failed to upload %s (%s)", filename, strerror(errno));
