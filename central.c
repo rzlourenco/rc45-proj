@@ -1,6 +1,8 @@
 #include "common.h"
 
+#include <arpa/inet.h>
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -15,6 +17,7 @@ static int CS_tcp_socket = -1;
 static int CS_udp_socket = -1;
 static int CS_port = 58000 + NG;
 static struct sockaddr_in CS_addr;
+const char *workdir = NULL;
 
 void tcp_loop(void);
 void udp_loop(void);
@@ -22,6 +25,9 @@ void udp_loop(void);
 int main(int argc, char *argv[]) {
   // Make sure child processes are reaped by the kernel
   signal(SIGCHLD, SIG_IGN);
+
+  // We are depending on a Linux extension here. This is not POSIX compliant
+  workdir = getcwd(NULL, 0);
 
   parse_args(argc, argv, &CS_port, NULL);
 
@@ -69,11 +75,19 @@ void tcp_loop() {
     }
 
     // Handle client requests
+    char buf[4096] = {0};
+    if (read(fd, buf, sizeof(buf)) == -1) {
+      E("error reading from client (%s)", strerror(errno));
+    }
+
+    
     
     // Terminate process
     exit(0);
   }
 }
+
+void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen);
 
 void udp_loop() {
   for (;;) {
@@ -91,16 +105,45 @@ void udp_loop() {
     }
 
     if (strncmp("LST\n", msg, 4) == 0) {
-      // TODO handle errors
-      static char flist[] = "AWL 127.0.0.1 59000 4 a.txt b.png c.d d.c\n";
-      sendto(CS_udp_socket, flist, sizeof(flist) - 1, 0, (struct sockaddr *)&client_addr, client_len); 
+      handle_LST(&client_addr, &client_len);      
     }
     else {
       static char resp[] = "ERR\n";
-      sendto(CS_udp_socket, resp, sizeof(resp) - 1, 0, (struct sockaddr *)&client_addr, client_len);
+      if (sendto(CS_udp_socket, resp, sizeof(resp) - 1, 0, (struct sockaddr *)&client_addr, client_len) == -1) {
+        E("could not send response to client %x (%s)", client_addr.sin_addr.s_addr, strerror(errno));
+      }
     }
 
     exit(0);
   }
+}
+
+void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen) {
+  DIR *dir = opendir(workdir);
+  if (dir == NULL) {
+    E("could not open directory %s (%s)", workdir, strerror(errno));
+  }
+
+  struct dirent *ent;
+  char buf[64 * 1024] = {0};
+
+  int totalBytes = snprintf(buf, sizeof(buf)-1, "AWL %s %d", inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
+  unsigned numFiles = 0;
+  char *fileBuf[30] = {0};
+  while ((ent = readdir(dir)) != NULL) {
+    if ((ent->d_type & DT_REG) == DT_REG && numFiles < (sizeof(fileBuf)/sizeof(*fileBuf))) {
+      fileBuf[numFiles++] = strdup(ent->d_name);
+    }    
+  }
+
+  totalBytes += snprintf(buf + totalBytes, sizeof(buf) - totalBytes - 1, " %u", numFiles);
+  for (unsigned i = 0; i < numFiles; ++i) {
+    totalBytes += snprintf(buf + totalBytes, sizeof(buf) - totalBytes - 1, " %s", fileBuf[i]);
+    free(fileBuf[i]);
+  }
+
+  buf[totalBytes++] = '\n';
+
+  assert(sendto(CS_udp_socket, buf, totalBytes, 0, (struct sockaddr *)addr, *addrlen) != -1);
 }
 

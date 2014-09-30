@@ -24,7 +24,8 @@ static int SS_port = 0;
 static struct sockaddr_in CS_addr;
 static struct sockaddr_in SS_addr;
 static struct sockaddr *CS_addr_ptr = (struct sockaddr *)&CS_addr;
-static struct sockaddr *SS_addr_ptr = (struct sockaddr *)&SS_addr;
+
+static int has_SS = 0;
 
 // =============== Forward declarations ==================================== 
 
@@ -121,10 +122,7 @@ void send_list_command() {
     errno = 0;
   }
 
-  SS_tcp_socket = connect_tcp(SS_name, SS_port, &SS_addr);
-  if (SS_tcp_socket == -1) {
-    E("Failed to connect to storage server (%s)", strerror(errno));
-  }
+  has_SS = 1;
 }
 
 void handle_list_response(char *msg) {
@@ -172,16 +170,6 @@ void handle_list_response(char *msg) {
 // ========================================================================= 
 
 void send_upload_command(const char *filename) {
-  // FIXME XXX
-  if (SS_tcp_socket != -1) {
-    close(SS_tcp_socket);
-  }
-
-  strcpy(SS_name, "tejo.ist.utl.pt");
-  SS_port = 59100;
-  D("SS name: %s, SS port: %d", SS_name, SS_port);
-  SS_tcp_socket = connect_tcp(SS_name, SS_port, NULL);
-
   int fd = open(filename, O_RDONLY);
   if (fd == -1) {
     W("could not open file %s (%s)", filename, strerror(errno));
@@ -232,8 +220,6 @@ void send_upload_command(const char *filename) {
   buf[numBytes] = '\0';
   close(fd);
 
-  D("String: \"%s\", size: %d, strlen: %d", buf, numBytes, strlen(buf));
-
   if (write(CS_tcp_socket, buf, numBytes) == -1) {
     E("failed to upload %s (%s)", filename, strerror(errno));
   }
@@ -255,8 +241,105 @@ void send_upload_command(const char *filename) {
 
 // ========================================================================= 
 
+void handle_retrieve_response(int fd, char *msg);
 void send_retrieve_command(const char *filename) {
-  // TODO
-  (void)filename;
+  int fd = -1;
+  if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC)) == -1) {
+    W("could not open %s (%s), aborting retrieve", filename, strerror(errno));
+    return;
+  }
+
+  if (has_SS == 0) {
+    W("storage server not set, please use the list command to receive one");
+    return;
+  }
+
+  SS_tcp_socket = connect_tcp(SS_name, SS_port, &SS_addr);
+  if (SS_tcp_socket == -1) {
+    W("Failed to connect to storage server (%s). Please try again.", strerror(errno));
+  }
+
+  char buf[32 * 1024] = {0};
+  int totalBytes = snprintf(buf, sizeof(buf)-1, "REQ %s\n", filename);
+  buf[totalBytes] = '\0';
+
+  D("%s", buf);
+
+  if (write(SS_tcp_socket, buf, totalBytes) == -1) {
+    W("could not send upload request to storage server (%s)", strerror(errno));
+    goto end;
+    return;
+  }
+
+  totalBytes = 0;
+  do {
+    int readBytes = read(SS_tcp_socket, buf + totalBytes, sizeof(buf)-totalBytes-1);
+    if (readBytes == -1) {
+      totalBytes = -1;
+      break;
+    }
+
+    // EOF or buffer size full
+    if (readBytes == 0) {
+      break;
+    }
+
+    totalBytes += readBytes;
+  } while (1);
+
+  if (totalBytes == -1) {
+    W("could not read response from storage server (%s)", strerror(errno));
+    goto end;
+    return;
+  }
+
+  // Make sure string ends
+  buf[totalBytes] = '\0';
+
+  handle_retrieve_response(fd, buf);
+
+end:
+  close(fd);
+  close(SS_tcp_socket);
+  SS_tcp_socket = -1;
+}
+
+// REP *status* *size* *data*\n
+void handle_retrieve_response(int fd, char *msg) {
+  // Header (REP)
+  char *s = strtok(msg, " "); assert(s);
+
+  if (strncmp("REP", s, 3) != 0) {
+    E("unexpected answer from storage server: %s", s);
+  }
+
+  // *status*
+  s = strtok(NULL, " "); assert(s);
+  if (strncmp("ok", s, 2) != 0) {
+    if (strncmp("ERR", s, 3) == 0) {
+      W("the storage server could not handle our request");
+      return;
+    }
+    else {
+      E("unexpected response from storage server: %s", s);
+    }
+  }
+
+  // *size*
+  s = strtok(NULL, " "); assert(s);
+  long l = strtol(s, NULL, 10);
+  if (l < 0) {
+    E("negative file size! Possible exploit?");
+  }
+
+  if (l >= 4096) {
+    W("file too large (%ld bytes). Maximum file size: 4K", l);
+    return;
+  }
+
+  // *data*
+  s = strtok(NULL, " "); assert(s);
+  write(fd, s, l);
+  
 }
 
