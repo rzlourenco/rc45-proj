@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    int ret = sscanf(line, "%s %s \n", command, arg);
+    int ret = sscanf(line, "%s %s\n", command, arg);
 
     if (ret == 1 && strcmp(command, "list") == 0) {
       send_list_command();
@@ -172,6 +172,16 @@ void handle_list_response(char *msg) {
 // ========================================================================= 
 
 void send_upload_command(const char *filename) {
+  // FIXME XXX
+  if (SS_tcp_socket != -1) {
+    close(SS_tcp_socket);
+  }
+
+  strcpy(SS_name, "tejo.ist.utl.pt");
+  SS_port = 59100;
+  D("SS name: %s, SS port: %d", SS_name, SS_port);
+  SS_tcp_socket = connect_tcp(SS_name, SS_port, NULL);
+
   int fd = open(filename, O_RDONLY);
   if (fd == -1) {
     W("could not open file %s (%s)", filename, strerror(errno));
