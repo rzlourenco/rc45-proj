@@ -53,6 +53,7 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+void handle_upload(int fd, char *msg);
 void tcp_loop() {
   for (;;) {
     struct sockaddr_in client_addr;
@@ -60,12 +61,12 @@ void tcp_loop() {
     int fd = accept(CS_tcp_socket, (struct sockaddr *)&client_addr, &client_len);
 
     if (fd == -1) {
-      E("Failed to accept TCP connection (%s)", strerror(errno));
+      E("could not accept TCP connection (%s)", strerror(errno));
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-      E("Could not fork TCP server (%s)", strerror(errno));
+      E("could not fork TCP server (%s)", strerror(errno));
     }
 
     // Leave client handling to child process
@@ -75,32 +76,45 @@ void tcp_loop() {
     }
 
     // Handle client requests
-    char buf[4096] = {0};
-    if (read(fd, buf, sizeof(buf)) == -1) {
+    char buf[64*1024] = {0};
+    if (read(fd, buf, sizeof(buf)-1) == -1) {
       E("error reading from client (%s)", strerror(errno));
     }
 
-    
-    
+    if (strncmp(buf, "UPR ", 4) == 0) {
+      handle_upload(fd, buf);
+    }
+    else {
+      static char resp[] = "AWR ERR\n";
+      if (write(fd, resp, sizeof(resp)-1) == -1) {
+        E("could not send response to client %x (%s)", client_addr.sin_addr.s_addr, strerror(errno));
+      }
+    }
+
     // Terminate process
     exit(0);
   }
 }
 
-void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen);
+void handle_upload(int fd, char *msg) {(void)fd; (void)msg;}
 
+void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen);
 void udp_loop() {
   for (;;) {
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
     char msg[64 * 1024] = {0};
-    if (recvfrom(CS_udp_socket, msg, sizeof(msg), 0, (struct sockaddr *)&client_addr, &client_len) == -1) {
+    if (recvfrom(CS_udp_socket, msg, sizeof(msg)-1, 0, (struct sockaddr *)&client_addr, &client_len) == -1) {
       E("Failed to receive data from client (%s)", strerror(errno));
     }
 
-    // TODO handle errors
-    if (fork() != 0) {
+    pid_t child = fork();
+    if (child == -1) {
+      E("could not fork process (%s)", strerror(errno));
+    }
+
+    if (child != 0) {
       continue;
     }
 
@@ -132,9 +146,16 @@ void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen) {
   char *fileBuf[30] = {0};
   while ((ent = readdir(dir)) != NULL) {
     if ((ent->d_type & DT_REG) == DT_REG && numFiles < (sizeof(fileBuf)/sizeof(*fileBuf))) {
+      // Skip "hidden" files
+      if (ent->d_name[0] == '.') {
+        continue;
+      }
+
       fileBuf[numFiles++] = strdup(ent->d_name);
     }    
   }
+
+  closedir(dir);
 
   totalBytes += snprintf(buf + totalBytes, sizeof(buf) - totalBytes - 1, " %u", numFiles);
   for (unsigned i = 0; i < numFiles; ++i) {
@@ -144,6 +165,7 @@ void handle_LST(struct sockaddr_in *addr, socklen_t *addrlen) {
 
   buf[totalBytes++] = '\n';
 
+  // TODO: properly handle return value
   assert(sendto(CS_udp_socket, buf, totalBytes, 0, (struct sockaddr *)addr, *addrlen) != -1);
 }
 

@@ -113,7 +113,6 @@ void send_list_command() {
     E("the central server closed the connection");
   }
 
-  D("%s", answer);
   handle_list_response(answer);
 
   if (SS_tcp_socket != -1) {
@@ -136,12 +135,10 @@ void handle_list_response(char *msg) {
   // Copy hostname/IP
   strncpy(SS_name, s, sizeof(SS_name));
   SS_name[sizeof(SS_name) - 1] = '\0';
-  D("SS hostname is %s", SS_name);
 
   // Read port
   s = strtok(NULL, " "); assert(s);
   SS_port = strtol(s, NULL, 10);
-  D("SS port is %d", SS_port);
 
   // Read number of files
   s = strtok(NULL, " "); assert(s);
@@ -180,7 +177,7 @@ void send_upload_command(const char *filename) {
   fstat(fd, &file_info);
   
   if (file_info.st_size > MAX_FILE_SIZE) {
-    W("file size is greater than %d, upload aborted", MAX_FILE_SIZE);
+    W("file size is greater than %.2f KiB, upload aborted", MAX_FILE_SIZE/1024.);
     close(fd);
     return;
   }
@@ -198,7 +195,7 @@ void send_upload_command(const char *filename) {
   }
   buf[numBytes] = '\0';
 
-  D("%s", buf);
+  D("upload: reply size is %d", numBytes);
 
   if (strncmp("AWR ", buf, 4) != 0) {
     E("unexpected response from server: %s", buf);
@@ -230,8 +227,6 @@ void send_upload_command(const char *filename) {
   }
   buf[numBytes] = '\0';
 
-  D("%s", buf);
-
   if (strncmp("AWC ", buf, 4) != 0 || strncmp("ok\n", buf + 4, 3) != 0) {
     E("unexpected responser from server: %s", buf);
   }
@@ -246,12 +241,12 @@ void send_retrieve_command(const char *filename) {
   int fd = -1;
   if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC)) == -1) {
     W("could not open %s (%s), aborting retrieve", filename, strerror(errno));
-    return;
+    goto end;
   }
 
   if (has_SS == 0) {
     W("storage server not set, please use the list command to receive one");
-    return;
+    goto end;
   }
 
   SS_tcp_socket = connect_tcp(SS_name, SS_port, &SS_addr);
@@ -263,12 +258,9 @@ void send_retrieve_command(const char *filename) {
   int totalBytes = snprintf(buf, sizeof(buf)-1, "REQ %s\n", filename);
   buf[totalBytes] = '\0';
 
-  D("%s", buf);
-
   if (write(SS_tcp_socket, buf, totalBytes) == -1) {
     W("could not send upload request to storage server (%s)", strerror(errno));
     goto end;
-    return;
   }
 
   totalBytes = 0;
@@ -290,7 +282,6 @@ void send_retrieve_command(const char *filename) {
   if (totalBytes == -1) {
     W("could not read response from storage server (%s)", strerror(errno));
     goto end;
-    return;
   }
 
   // Make sure string ends
@@ -299,8 +290,8 @@ void send_retrieve_command(const char *filename) {
   handle_retrieve_response(fd, buf);
 
 end:
-  close(fd);
-  close(SS_tcp_socket);
+  if (fd == -1) close(fd);
+  if (SS_tcp_socket == -1) close(SS_tcp_socket);
   SS_tcp_socket = -1;
 }
 
@@ -329,17 +320,17 @@ void handle_retrieve_response(int fd, char *msg) {
   s = strtok(NULL, " "); assert(s);
   long l = strtol(s, NULL, 10);
   if (l < 0) {
-    E("negative file size! Possible exploit?");
+    W("negative file size! Possible exploit?");
+    return;
   }
 
-  if (l >= 4096) {
-    W("file too large (%ld bytes). Maximum file size: 4K", l);
+  if (l >= MAX_FILE_SIZE) {
+    W("file too large (%.2f KiB). Maximum file size: %.2f KiB", l/1024., MAX_FILE_SIZE/1024.);
     return;
   }
 
   // *data*
   s = strtok(NULL, " "); assert(s);
   write(fd, s, l);
-  
 }
 
