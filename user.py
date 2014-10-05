@@ -20,7 +20,7 @@ SS_port = None
 
 def recvall(s):
     f = s.makefile('rb', BUFFER_SIZE)
-    data = f.read()
+    data = f.read(2*MAX_FILE_SIZE)
     f.close()
     return data
 
@@ -108,6 +108,8 @@ def upload_command(fileName):
     if len(resp) != 2 or resp[0] != 'AWC' or resp[1] != 'ok':
         debug("%r", resp)
         print "Unexpected response from server"
+        s.close()
+        return
 
     print "File upload completed successfuly"
     
@@ -190,5 +192,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
