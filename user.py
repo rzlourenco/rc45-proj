@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python
 import os
 import socket
 from os import path
@@ -17,12 +17,6 @@ CS_port = 58000 + NG
 
 SS_name = None
 SS_port = None
-
-def recvall(s):
-    f = s.makefile('rb', BUFFER_SIZE)
-    data = f.read(2*MAX_FILE_SIZE)
-    f.close()
-    return data
 
 def debug(fmt, *args):
     global DEBUG
@@ -48,7 +42,7 @@ def show_help():
 def list_command():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     s.connect((CS_name, CS_port))
-    s.send('LST\n')
+    s.sendall('LST\n')
 
     # UDP sends by datagram, limited to 64k
     resp = s.recv(64 * 1024)
@@ -89,9 +83,9 @@ def upload_command(fileName):
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
     s.connect((CS_name, CS_port))
-    s.send('UPR %s\n' % fileName)
+    s.sendall('UPR %s\n' % fileName)
 
-    resp = recvall(s).split()
+    resp = s.recv(BUFFER_SIZE).split()
     if len(resp) != 2 or resp[0] != 'AWR' or resp[1] == 'ERR':
         debug("%r", resp)
         print "Unexpected response from server"
@@ -103,7 +97,7 @@ def upload_command(fileName):
         s.close()
         return
 
-    s.send('UPC %d ' % fileSize + fileData + '\n')
+    s.sendall('UPC %d ' % fileSize + fileData + '\n')
     resp = s.recv(BUFFER_SIZE).split()
     if len(resp) != 2 or resp[0] != 'AWC' or resp[1] != 'ok':
         debug("%r", resp)
@@ -121,16 +115,21 @@ def retrieve_command(fileName):
         return
 
     if path.exists(fileName) and path.isfile(fileName):
-        print "File already exists, not clobbering"
-        return
+        resp = raw_input("File already exists. Clobber? ")
+        if resp in ('Y', 'y', 'yes'):
+	    os.remove(fileName)
+        else:
+            return
 
     err = False
     with open(fileName, 'wb') as f:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         s.connect((SS_name, SS_port))
 
-        s.send('REQ %s\n' % fileName)
-        resp = recvall(s).split(" ", 3)
+        s.sendall('REQ %s\n' % fileName)
+        ss = s.makefile('rb', BUFFER_SIZE)
+        resp = ss.read().split(" ", 3)
+        ss.close()
         if len(resp) != 4 or resp[0] != 'REP' or resp[1] != 'ok':
             debug("%r", resp[:3])
             print "Unexpected response from server"
@@ -147,8 +146,6 @@ def retrieve_command(fileName):
 
     if err:
         os.remove(fileName)
-
-    
 
 def main():
     parse_args()
