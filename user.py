@@ -9,7 +9,7 @@ argv = argv[1:]
 
 BUFFER_SIZE = 4096
 DEBUG = 1
-MAX_FILE_SIZE = 4*1024*1024 # 4 MiB
+MAX_FILE_SIZE = 5*1024*1024 # 5 MiB
 NG = 10
 
 CS_name = 'localhost'
@@ -17,11 +17,6 @@ CS_port = 58000 + NG
 
 SS_name = None
 SS_port = None
-
-def debug(fmt, *args):
-    global DEBUG
-    if DEBUG > 0:
-        print ("[DEBUG] " + fmt) % args
 
 def parse_args():
     global CS_name, CS_port
@@ -50,15 +45,12 @@ def list_command():
 
     words = resp.split()
     if len(words) < 4 or words[0] != 'AWL':
-        debug("%r", words)
         print "Invalid server response!"
         return
 
     global SS_name, SS_port
     SS_name = words[1]
     SS_port = int(words[2], 10)
-
-    debug("storage server is %s:%d", SS_name, SS_port)
 
     numFiles = int(words[3], 10)
     words = words[4:]
@@ -76,7 +68,7 @@ def upload_command(fileName):
     if fileSize >= MAX_FILE_SIZE:
         print "Will not upload files larger than %.2f MiB" % (MAX_FILE_SIZE/1024/1024.0)
         return
-    
+
     fileData = None
     with open(fileName, mode='rb') as f:
         fileData = f.read()
@@ -86,27 +78,26 @@ def upload_command(fileName):
     s.sendall('UPR %s\n' % fileName)
 
     resp = s.recv(BUFFER_SIZE).split()
-    if len(resp) != 2 or resp[0] != 'AWR' or resp[1] == 'ERR':
-        debug("%r", resp)
-        print "Unexpected response from server"
+    if len(resp) != 2 or resp[0] != 'AWR' or resp[1] not in ('dup', 'new'):
+        print "Unexpected response from server:", resp
         s.close()
         return
-
-    if resp[1] == 'dup':
+    elif resp[1] == 'dup':
         print "File already exists in server"
         s.close()
         return
 
     s.sendall('UPC %d ' % fileSize + fileData + '\n')
     resp = s.recv(BUFFER_SIZE).split()
-    if len(resp) != 2 or resp[0] != 'AWC' or resp[1] != 'ok':
-        debug("%r", resp)
-        print "Unexpected response from server"
+    if len(resp) != 2 or resp[0] != 'AWC' or resp[1] not in ('ok', 'nok'):
+        print "Unexpected response from server:", resp
         s.close()
         return
+    elif resp[1] == 'nok':
+        print "There was a server error uploading the file"
+    else:
+        print "File upload completed successfuly"
 
-    print "File upload completed successfuly"
-    
     s.close()
 
 def retrieve_command(fileName):
@@ -117,7 +108,7 @@ def retrieve_command(fileName):
     if path.exists(fileName) and path.isfile(fileName):
         resp = raw_input("File already exists. Clobber? ")
         if resp in ('Y', 'y', 'yes'):
-	    os.remove(fileName)
+            os.remove(fileName)
         else:
             return
 
@@ -130,11 +121,13 @@ def retrieve_command(fileName):
         ss = s.makefile('rb', BUFFER_SIZE)
         resp = ss.read().split(" ", 3)
         ss.close()
-        if len(resp) != 4 or resp[0] != 'REP' or resp[1] != 'ok':
-            debug("%r", resp[:3])
+        if len(resp) != 4 or resp[0] != 'REP' or resp[1] not in ('ok', 'nok'):
             print "Unexpected response from server"
             err = True
-        else:
+        elif resp[1] == 'nok':
+            print "Retrieve was not successful"
+            err = True
+        elif resp[1] == 'ok':
             numBytes = int(resp[2], 10)
             if numBytes >= len(resp[3]):
                 print "Server reports wrong file size: declared %d, read %d" % (numBytes, len(resp[3]))
@@ -185,7 +178,7 @@ def main():
             print e
         except os.error as e:
             print e
-                
+
 
 if __name__ == '__main__':
     main()
