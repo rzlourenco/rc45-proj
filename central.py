@@ -4,17 +4,13 @@ import os
 import random
 import signal
 import socket
+from common import *
 from os import path
 from random import randint, shuffle
 from sys import argv
 
 # Strip program filename
 argv = argv[1:]
-
-BUFFER_SIZE = 4096
-DEBUG = 1
-MAX_FILE_SIZE = 5*1024*1024 # 5 MiB
-NG = 10
 
 TCP_server = None
 UDP_server = None
@@ -87,7 +83,7 @@ def run_tcp_server():
             readBytes += len(newData)
             pieces.append(newData)
 
-        if pieces[-1][-1] == '\n':
+        if readBytes == fileSize + 1 and pieces[-1][-1] == '\n':
             pieces[-1] = pieces[-1][:-1]
             readBytes -= 1
         data[2] = ''.join(pieces)
@@ -107,8 +103,10 @@ def run_tcp_server():
                 s.connect((SS_name, SS_port))
                 s.sendall(''.join(['UPS', ' ',
                                    fileName, ' ',
+                                   str(fileSize), ' ',
                                    data[2], '\n']))
                 resp = s.recv(BUFFER_SIZE).split()
+
                 if len(resp) != 2 or resp[0] != 'AWS' or resp[1] not in ('nok', 'ok'):
                     err = True
                     print "[CS] Storage server %s:%d does not conform to protocol." % (SS_name, SS_port)

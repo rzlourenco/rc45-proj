@@ -1,16 +1,12 @@
 #!/usr/bin/python
 import os
 import socket
+from common import *
 from os import path
 from sys import argv
 
 # Strip program filename
 argv = argv[1:]
-
-BUFFER_SIZE = 4096
-DEBUG = 1
-MAX_FILE_SIZE = 5*1024*1024 # 5 MiB
-NG = 10
 
 CS_name = 'localhost'
 CS_port = 58000 + NG
@@ -108,8 +104,10 @@ def retrieve_command(fileName):
     if path.exists(fileName) and path.isfile(fileName):
         resp = raw_input("File already exists. Clobber? ")
         if resp in ('Y', 'y', 'yes'):
+            print "Overwriting", fileName
             os.remove(fileName)
         else:
+            print "Not overwriting", fileName
             return
 
     err = False

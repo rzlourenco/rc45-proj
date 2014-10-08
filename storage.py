@@ -1,16 +1,11 @@
 #!/usr/bin/python
 
+from common import *
 from os import path
 from sys import argv
 import os
 import signal
 import socket
-
-BUFFER_SIZE = 4096
-HEADER_SIZE = 3
-
-NG = 10
-CS_ADDR = ('127.0.0.1', 58000 + NG)
 
 def handle_REQ(conn, addr, data):
     data = data.strip()
@@ -23,7 +18,7 @@ def handle_REQ(conn, addr, data):
                 print "[SS] Large file", data, "requested by %s:%d" % addr
                 conn.sendall('REP nok 1 \0\n')
             else:
-                print "[SS] Sending file", data, "to %s:%d" % addr
+                print "[SS] Sending file --", data, "-- to %s:%d" % addr
                 fileData = f.read(fileSize)
                 conn.sendall(''.join(['REP ok %d ' % fileSize, fileData, '\n']))
 
@@ -32,17 +27,63 @@ def handle_REQ(conn, addr, data):
         conn.sendall('REP nok 1 \0\n')
 
 def handle_UPS(conn, addr, data):
-    if addr != CS_ADDR:
+    if addr[0] != CS_ADDR[0]:
         print "[SS] %s:%d is not the central server, but sent an UPS request" % addr
         conn.sendall('ERR\n')
         return
 
-    conn.sendall('AWS nok\n')
+    # filename filesize data
+    data = data.split(" ", 2)
+    if len(data) != 3:
+        print "[SS] Invalid protocol from central server at %s:%d" % addr
+        return
+
+    fileName = data[0].strip()
+    if path.exists(fileName):
+        print "[SS] file --", fileName, "-- already exists, clobbering"
+    else:
+        print "[SS] file --", fileName, "-- does not exist, creating"
+
+    try:
+        fileSize = int(data[1], 10)
+    except ValueError:
+        print "[SS] protocol error: expected integer in size field in UPS from %s:%d" % addr
+        conn.sendall('ERR\n')
+        return
+
+    readBytes = len(data[2])
+    pieces = [data[2]]
+    while readBytes < fileSize:
+        newBytes = conn.recv(BUFFER_SIZE)
+        if not newBytes:
+            break
+
+        readBytes += len(newBytes)
+        pieces.append(newBytes)
+
+    if readBytes == fileSize + 1 and pieces[-1][-1] == '\n':
+        pieces[-1] = pieces[-1][:-1]
+        readBytes -= 1
+    else:
+        print "[SS] central server at %s:%d does not conform to protocol (eol missing)" % addr
+        conn.sendall('ERR\n')
+        return
+
+    print "[SS] file --", fileName, "-- from %s:%d has" % addr, readBytes, "bytes"
+
+    fileData = ''.join(pieces)
+    try:
+        with open(fileName, 'wb') as f:
+            f.write(fileData)
+    except IOError as e:
+        print "[SS] could not write --", fileName, "-- from %s:%d ->" % addr, e
+        conn.sendall('AWS nok\n')
+        return
+
+    conn.sendall('AWS ok\n')
 
 def handle_client(conn, addr):
-    msg = conn.recv(BUFFER_SIZE)
-    print "[SS] Received", len(msg), "bytes from %s:%d" % addr
-    msg = msg.split(" ", 1)
+    msg = conn.recv(BUFFER_SIZE).split(" ", 1)
 
     if len(msg) < 2 or msg[0] not in ('REQ', 'UPS'):
         print "[SS] Invalid message from %s:%d" % addr
