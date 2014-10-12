@@ -11,7 +11,10 @@ names that are kept. This can be changed in central.py, in the read_storage_serv
 function.
 
 *** DON'T RUN EVERYTHING IN THE SAME WORKING DIRECTORY ***
+
 The testing folder structure was:
+
+```
   testarea/
       central/
       storage0/
@@ -20,6 +23,8 @@ The testing folder structure was:
       storage3/
       user/
       serverlist
+      
+```
 
 Each program should be run in it's respective working directory.
 
