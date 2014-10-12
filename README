@@ -1,3 +1,5 @@
+# Important to Read
+
 The storage server needs to know the central server's address so it
 can be "authenticated". Please edit the CS_ADDR constant as needed in
 common.py. The format is (IP, PORT).
